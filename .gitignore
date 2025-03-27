@@ -1,0 +1,46 @@
+# Node.js
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Vite build output
+dist
+.vite
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE/Editor configs
+.vscode
+.idea
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+logs
+*.log
+*.log.*
+
+# Coverage and testing
+coverage
+.nyc_output
+
+# Build cache
+.cache
+turbo
+out
+
+# Storybook (if ever used)
+.storybook-out
+
