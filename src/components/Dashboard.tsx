@@ -1,36 +1,77 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Sun, Award, ArrowRight, Share2, Github, Twitter } from 'lucide-react';
+import { Sun, Award, ArrowRight, Share2, Github, Twitter, Clock, Zap } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useAccount } from 'wagmi';
+import { api } from '../services/api';
 
-const RANKS = {
-  0: 'Novice Explorer',
-  20: 'Rising Star',
-  50: 'Cosmic Builder',
-  100: 'Solar Innovator',
-  200: 'Celestial Master'
-};
+interface XPHistoryItem {
+  _id: string;
+  amount: number;
+  type: string;
+  description: string;
+  timestamp: string;
+}
 
-const getRank = (xp: number) => {
-  const thresholds = Object.keys(RANKS).map(Number).sort((a, b) => b - a);
-  const rank = thresholds.find(threshold => xp >= threshold);
-  return RANKS[rank || 0];
-};
+interface XPLevelInfo {
+  currentLevel: number;
+  totalXP: number;
+  nextLevelXP: number;
+  xpForCurrentLevel: number;
+  xpNeededForNextLevel: number;
+  progressToNextLevel: number;
+  isMaxLevel: boolean;
+}
 
-const getNextLevelXP = (currentXP: number) => {
-  const thresholds = Object.keys(RANKS).map(Number).sort((a, b) => a - b);
-  const nextLevel = thresholds.find(threshold => threshold > currentXP);
-  return nextLevel || currentXP;
+const formatDate = (dateString: string) => {
+  const date = new Date(dateString);
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
 };
 
 const Dashboard = () => {
-  const { xp } = useStore();
   const { address } = useAccount();
+  const [xpHistory, setXPHistory] = useState<XPHistoryItem[]>([]);
+  const [xpLevelInfo, setXPLevelInfo] = useState<XPLevelInfo | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [historyResponse, levelResponse] = await Promise.all([
+          api.getUserXPHistory(),
+          api.getUserXPLevel()
+        ]);
+
+        if (historyResponse.success) {
+          setXPHistory(historyResponse.xpHistory);
+        }
+        if (levelResponse.success) {
+          setXPLevelInfo({
+            currentLevel: levelResponse.currentLevel,
+            totalXP: levelResponse.totalXP,
+            nextLevelXP: levelResponse.nextLevelXP,
+            xpForCurrentLevel: levelResponse.xpForCurrentLevel,
+            xpNeededForNextLevel: levelResponse.xpNeededForNextLevel,
+            progressToNextLevel: levelResponse.progressToNextLevel,
+            isMaxLevel: levelResponse.isMaxLevel
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
   const shortenedAddress = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
-  const currentRank = getRank(xp);
-  const nextLevelXP = getNextLevelXP(xp);
-  const progress = (xp / nextLevelXP) * 100;
 
   const fadeInUp = {
     initial: { opacity: 0, y: 20 },
@@ -63,7 +104,11 @@ const Dashboard = () => {
                 <Sun className="w-12 h-12 text-white" />
               </div>
               <div className="absolute -bottom-2 -right-2 bg-white rounded-full p-2 shadow-lg">
-                <Award className="w-6 h-6 text-[#002DCB]" />
+                {xpLevelInfo && (
+                  <div className="bg-[#002DCB] text-white w-8 h-8 rounded-full flex items-center justify-center font-bold">
+                    {xpLevelInfo.currentLevel}
+                  </div>
+                )}
               </div>
             </motion.div>
             
@@ -71,7 +116,7 @@ const Dashboard = () => {
               <div className="flex items-center gap-3 mb-2">
                 <h2 className="text-2xl font-bold text-[#040F34]">{shortenedAddress}</h2>
                 <span className="px-3 py-1 bg-[#E2EBFF] text-[#002DCB] rounded-full text-sm font-medium">
-                  {currentRank}
+                  Level {xpLevelInfo?.currentLevel || 0}
                 </span>
               </div>
               
@@ -79,43 +124,53 @@ const Dashboard = () => {
                 <motion.div 
                   className="absolute left-0 top-0 h-full bg-gradient-to-r from-[#002DCB] to-[#0045FF]"
                   initial={{ width: 0 }}
-                  animate={{ width: `${progress}%` }}
+                  animate={{ width: `${xpLevelInfo?.progressToNextLevel || 0}%` }}
                   transition={{ duration: 1 }}
                 />
               </div>
               
-              <div className="flex justify-between mt-2 text-sm text-[#5C6584]">
-                <span>{xp} XP</span>
-                <span>{nextLevelXP} XP</span>
+              <div className="flex justify-between mt-2 text-sm">
+                <span className="text-[#002DCB] font-medium flex items-center gap-1">
+                  <Zap className="w-4 h-4" />
+                  {xpLevelInfo?.totalXP || 0} XP Total
+                </span>
+                {!xpLevelInfo?.isMaxLevel && (
+                  <span className="text-[#5C6584]">
+                    {xpLevelInfo?.xpNeededForNextLevel || 0} XP to Level {(xpLevelInfo?.currentLevel || 0) + 1}
+                  </span>
+                )}
               </div>
             </div>
           </div>
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Points Breakdown */}
+          {/* XP History */}
           <motion.div 
             className="bg-white rounded-2xl p-6 shadow-xl"
             {...fadeInUp}
             transition={{ delay: 0.2 }}
           >
-            <h3 className="text-xl font-bold text-[#040F34] mb-4">Achievement Log</h3>
+            <h3 className="text-xl font-bold text-[#040F34] mb-4">XP History</h3>
             <div className="space-y-4">
-              {[
-                { action: 'Connected to Helios', xp: 10, icon: Sun },
-                { action: 'Claimed Faucet', xp: 5, icon: Award },
-                { action: 'Minted NFT', xp: 5, icon: Award }
-              ].map((item, index) => (
-                <div key={index} className="flex items-center gap-4 p-3 bg-[#E2EBFF]/20 rounded-lg">
-                  <div className="w-10 h-10 bg-[#002DCB]/10 rounded-full flex items-center justify-center">
-                    <item.icon className="w-5 h-5 text-[#002DCB]" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-[#040F34] font-medium">{item.action}</p>
-                  </div>
-                  <span className="text-[#002DCB] font-bold">+{item.xp} XP</span>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#002DCB]"></div>
                 </div>
-              ))}
+              ) : (
+                xpHistory.map((item) => (
+                  <div key={item._id} className="flex items-center gap-4 p-3 bg-[#E2EBFF]/20 rounded-lg">
+                    <div className="w-10 h-10 bg-[#002DCB]/10 rounded-full flex items-center justify-center">
+                      <Clock className="w-5 h-5 text-[#002DCB]" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[#040F34] font-medium">{item.description}</p>
+                      <p className="text-sm text-[#5C6584]">{formatDate(item.timestamp)}</p>
+                    </div>
+                    <span className="text-[#002DCB] font-bold">+{item.amount} XP</span>
+                  </div>
+                ))
+              )}
             </div>
           </motion.div>
 

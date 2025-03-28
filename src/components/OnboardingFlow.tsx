@@ -1,15 +1,59 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/useStore';
 import Mascot from './Mascot';
 import XPToast from './XPToast';
+import { api } from '../services/api';
+import Dashboard from './Dashboard';
 
 const TOTAL_STEPS = 5;
 
 const OnboardingFlow = () => {
-  const { step, setStep, addXP } = useStore();
+  const { step, setStep, addXP, fetchOnboardingProgress, onboardingProgress } = useStore();
   const [showXPToast, setShowXPToast] = useState(false);
   const [isTypingComplete, setIsTypingComplete] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [pendingXP, setPendingXP] = useState(0);
+
+  useEffect(() => {
+    const initializeProgress = async () => {
+      try {
+        const progress = await api.getOnboardingProgress();
+        
+        // Map step keys to component steps
+        const stepMapping = {
+          'add_helios_network': 3,
+          'claim_from_faucet': 4,
+          'mint_early_bird_nft': 5
+        };
+        
+        if (progress.completedSteps.length >= Object.keys(stepMapping).length) {
+          setStep(7);
+          return;
+        }
+        
+        // If we have completed steps, find the next step
+        if (progress.completedSteps && progress.completedSteps.length > 0) {
+          const lastCompletedStep = progress.completedSteps[progress.completedSteps.length - 1];
+          const nextStep = stepMapping[lastCompletedStep] + 1;
+          
+          // If all steps are completed, go to dashboard
+          if (nextStep > 5) {
+            setStep(7);
+          } else {
+            setStep(nextStep);
+          }
+        } else {
+          // If no steps completed, start from beginning
+          setStep(2);
+        }
+      } catch (error) {
+        console.error('Failed to fetch onboarding progress:', error);
+      }
+    };
+
+    initializeProgress();
+  }, [setStep]);
 
   const checkNetworkExists = async () => {
     try {
@@ -33,6 +77,16 @@ const OnboardingFlow = () => {
 
   const handleAddNetwork = async () => {
     try {
+      setIsLoading(true);
+      const progress = await api.getOnboardingProgress();
+      
+      if (progress.completedSteps.includes('add_helios_network')) {
+        setStep(4);
+        return;
+      }
+
+      await api.startOnboardingStep('add_helios_network');
+      
       const exists = await checkNetworkExists();
       
       if (!exists) {
@@ -52,36 +106,111 @@ const OnboardingFlow = () => {
         });
       }
 
-      addXP(10);
-      setShowXPToast(true);
-      setTimeout(() => setShowXPToast(false), 3000);
-      setStep(4);
-    } catch (error) {
-      console.error('Failed to add network:', error);
+      const response = await api.completeOnboardingStep('add_helios_network', 'network_added');
+      
+      if (response.success) {
+        setPendingXP(prev => prev + 10);
+        setStep(4);
+      }
+    } catch (error: any) {
+      if (error.message === "Onboarding step already started or completed") {
+        setStep(4);
+      } else {
+        console.error('Failed to add network:', error);
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleClaimTokens = async () => {
-    addXP(5);
-    setShowXPToast(true);
-    setTimeout(() => setShowXPToast(false), 3000);
-    setStep(5);
+    try {
+      setIsLoading(true);
+      const progress = await api.getOnboardingProgress();
+      
+      if (progress.completedSteps.includes('claim_from_faucet')) {
+        setStep(5);
+        return;
+      }
+
+      await api.startOnboardingStep('claim_from_faucet');
+      
+      const response = await api.completeOnboardingStep('claim_from_faucet', 'tokens_claimed');
+      
+      if (response.success) {
+        setPendingXP(prev => prev + 5);
+        setStep(5);
+      }
+    } catch (error: any) {
+      if (error.message === "Onboarding step already started or completed") {
+        setStep(5);
+      } else {
+        console.error('Failed to claim tokens:', error);
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleMintNFT = async () => {
-    addXP(5);
-    setShowXPToast(true);
-    setTimeout(() => setShowXPToast(false), 3000);
-    setStep(6);
+    try {
+      setIsLoading(true);
+      const progress = await api.getOnboardingProgress();
+      
+      if (progress.completedSteps.includes('mint_early_bird_nft')) {
+        setStep(6);
+        return;
+      }
+
+      await api.startOnboardingStep('mint_early_bird_nft');
+      
+      const response = await api.completeOnboardingStep('mint_early_bird_nft', 'nft_minted');
+      
+      if (response.success) {
+        setPendingXP(prev => prev + 5);
+        
+        try {
+          // Only claim rewards once at the end
+          const reward = await api.claimReward('xp');
+          
+          // Add accumulated XP
+          addXP(pendingXP + 5); // Include current step XP
+          setShowXPToast(true);
+          setTimeout(() => setShowXPToast(false), 3000);
+        } catch (error: any) {
+          // If rewards were already claimed, just proceed
+          if (error.message.includes('already claimed')) {
+            console.log('Rewards already claimed');
+          } else {
+            throw error;
+          }
+        }
+        
+        setStep(6);
+      }
+    } catch (error: any) {
+      if (error.message === "Onboarding step already started or completed") {
+        setStep(6);
+      } else {
+        console.error('Failed to mint NFT:', error);
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     setIsTypingComplete(false);
   }, [step]);
 
   const handleTypingComplete = () => {
     setIsTypingComplete(true);
   };
+
+  // If we're at step 7, show the dashboard
+  if (step === 7) {
+    return <Dashboard />;
+  }
 
   return (
     <motion.div 
@@ -124,16 +253,16 @@ const OnboardingFlow = () => {
             />
             <motion.button
               onClick={handleAddNetwork}
-              disabled={!isTypingComplete}
+              disabled={!isTypingComplete || isLoading}
               className={`w-full max-w-md mx-auto px-8 py-4 bg-white text-[#002DCB] rounded-full text-lg font-semibold transition-all duration-200 shadow-lg flex items-center justify-center gap-2 ${
-                isTypingComplete 
+                isTypingComplete && !isLoading
                   ? 'hover:bg-opacity-90 hover:scale-105 hover:shadow-xl' 
                   : 'opacity-50 cursor-not-allowed'
               }`}
-              whileHover={isTypingComplete ? { scale: 1.05 } : {}}
-              whileTap={isTypingComplete ? { scale: 0.95 } : {}}
+              whileHover={isTypingComplete && !isLoading ? { scale: 1.05 } : {}}
+              whileTap={isTypingComplete && !isLoading ? { scale: 0.95 } : {}}
             >
-              Add Helios Network
+              {isLoading ? 'Adding Network...' : 'Add Helios Network'}
             </motion.button>
           </>
         )}
@@ -148,16 +277,16 @@ const OnboardingFlow = () => {
             />
             <motion.button
               onClick={handleClaimTokens}
-              disabled={!isTypingComplete}
+              disabled={!isTypingComplete || isLoading}
               className={`w-full max-w-md mx-auto px-8 py-4 bg-white text-[#002DCB] rounded-full text-lg font-semibold transition-all duration-200 shadow-lg flex items-center justify-center gap-2 ${
-                isTypingComplete 
+                isTypingComplete && !isLoading
                   ? 'hover:bg-opacity-90 hover:scale-105 hover:shadow-xl' 
                   : 'opacity-50 cursor-not-allowed'
               }`}
-              whileHover={isTypingComplete ? { scale: 1.05 } : {}}
-              whileTap={isTypingComplete ? { scale: 0.95 } : {}}
+              whileHover={isTypingComplete && !isLoading ? { scale: 1.05 } : {}}
+              whileTap={isTypingComplete && !isLoading ? { scale: 0.95 } : {}}
             >
-              Claim from Faucet
+              {isLoading ? 'Claiming...' : 'Claim from Faucet'}
             </motion.button>
           </>
         )}
@@ -172,16 +301,16 @@ const OnboardingFlow = () => {
             />
             <motion.button
               onClick={handleMintNFT}
-              disabled={!isTypingComplete}
+              disabled={!isTypingComplete || isLoading}
               className={`w-full max-w-md mx-auto px-8 py-4 bg-white text-[#002DCB] rounded-full text-lg font-semibold transition-all duration-200 shadow-lg flex items-center justify-center gap-2 ${
-                isTypingComplete 
+                isTypingComplete && !isLoading
                   ? 'hover:bg-opacity-90 hover:scale-105 hover:shadow-xl' 
                   : 'opacity-50 cursor-not-allowed'
               }`}
-              whileHover={isTypingComplete ? { scale: 1.05 } : {}}
-              whileTap={isTypingComplete ? { scale: 0.95 } : {}}
+              whileHover={isTypingComplete && !isLoading ? { scale: 1.05 } : {}}
+              whileTap={isTypingComplete && !isLoading ? { scale: 0.95 } : {}}
             >
-              Mint Testnet NFT
+              {isLoading ? 'Minting...' : 'Mint Testnet NFT'}
             </motion.button>
           </>
         )}
@@ -213,12 +342,8 @@ const OnboardingFlow = () => {
 
       {showXPToast && (
         <XPToast 
-          amount={step === 3 ? 10 : 5} 
-          message={
-            step === 3 ? "Network added successfully!" :
-            step === 4 ? "Tokens claimed!" :
-            "NFT minted successfully!"
-          }
+          amount={pendingXP} 
+          message="All steps completed! Rewards claimed successfully!"
         />
       )}
     </motion.div>
