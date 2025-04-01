@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 
-const API_URL = 'https://52ef-92-251-44-177.ngrok-free.app/api';
+const API_URL = 'http://localhost:3000/api';
 
 export interface User {
   wallet: string;
@@ -54,10 +54,14 @@ class ApiClient {
   private token: string | null = null;
 
   constructor() {
+    // Load token from localStorage during initialization
     this.token = localStorage.getItem('jwt_token');
   }
 
   private getHeaders(): HeadersInit {
+    // Always get the latest token from localStorage
+    this.token = localStorage.getItem('jwt_token');
+    
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       'ngrok-skip-browser-warning': '1'
@@ -68,6 +72,11 @@ class ApiClient {
     }
 
     return headers;
+  }
+
+  private setToken(token: string) {
+    this.token = token;
+    localStorage.setItem('jwt_token', token);
   }
 
   async register(wallet: string, signature: string): Promise<{ token: string; user: User }> {
@@ -86,8 +95,7 @@ class ApiClient {
     }
 
     const data = await response.json();
-    this.token = data.token;
-    localStorage.setItem('jwt_token', data.token);
+    this.setToken(data.token);
     return data;
   }
 
@@ -103,8 +111,7 @@ class ApiClient {
     }
 
     const data = await response.json();
-    this.token = data.token;
-    localStorage.setItem('jwt_token', data.token);
+    this.setToken(data.token);
     return data;
   }
 
